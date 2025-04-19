@@ -12,4 +12,4 @@ The opml_to_json.py file parses all of the .opml files in a directory using the 
 
 Here's an example of the output. Yes, some work needs to be done to make this more useable.
 
-![screenshot of blogroll history graph](https://jpreardon.com/wp-content/uploads/2024/11/jpr-blogroll.png)
+![screenshot of blogroll history graph](blog-roll-history.png)
