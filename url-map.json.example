@@ -1,0 +1,10 @@
+[
+    {
+        "old": "http://example.com/blog",
+        "new": "http://blog.example.com/"
+    },
+    {
+        "old": "https://www.example.com/blog",
+        "new": "https://example.com/blog"
+    }
+]

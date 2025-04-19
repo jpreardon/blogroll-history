@@ -6,10 +6,24 @@ from datetime import datetime
 import html  # Import the html module to unescape HTML codes
 
 def normalize_url(url):
-    """Normalize a URL by removing the protocol (http or https)."""
-    return url.replace("http://", "").replace("https://", "")
+    """Normalize a URL by removing the protocol (http or https) and trailing slash."""
+    return url.replace("http://", "").replace("https://", "").rstrip("/")
 
-def parse_outline(outline_element, start_date, end_date):
+def load_url_map(url_map_file):
+    """Load the URL map from a JSON file."""
+    if not os.path.isfile(url_map_file):
+        raise ValueError(f"The URL map file '{url_map_file}' does not exist.")
+    with open(url_map_file, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+def map_url(url, url_map):
+    """Map a URL to its 'new' value if it exists in the URL map, otherwise return the original URL."""
+    for entry in url_map:
+        if normalize_url(entry["old"]) == normalize_url(url):
+            return entry["new"]
+    return url
+
+def parse_outline(outline_element, start_date, end_date, url_map):
     """Parse an outline element into a dictionary with specific fields: title, htmlUrl, start, and end."""
     title = outline_element.attrib.get("text", "")
     url = outline_element.attrib.get("htmlUrl", "")
@@ -17,15 +31,18 @@ def parse_outline(outline_element, start_date, end_date):
     if title and url:
         return {
             "title": html.unescape(title),  # Convert HTML codes to characters
-            "url": url,
+            "url": map_url(url, url_map),   # Map the URL using the URL map
             "start": start_date,
             "end": end_date
         }
     return None
 
-def opml_to_json(input_dir, output_json, target_outline_texts):
+def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None):
     """Convert all OPML files in a directory to JSON."""
     try:
+        # Load the URL map if the file is provided
+        url_map = load_url_map(url_map_file) if url_map_file else []
+
         # Ensure the input is a directory
         if not os.path.isdir(input_dir):
             raise ValueError(f"The input '{input_dir}' is not a directory.")
@@ -80,7 +97,7 @@ def opml_to_json(input_dir, output_json, target_outline_texts):
                 target_outline = body.find(f".//outline[@text='{target_text}']")
                 if target_outline is not None:
                     for outline in target_outline.findall("outline"):
-                        item = parse_outline(outline, start_date, end_date)
+                        item = parse_outline(outline, start_date, end_date, url_map)
                         if item is not None:
                             # Normalize the URL for comparison
                             normalized_item_url = normalize_url(item["url"])
@@ -112,14 +129,15 @@ def opml_to_json(input_dir, output_json, target_outline_texts):
 
 if __name__ == "__main__":
     # Check if enough arguments are provided
-    if len(sys.argv) != 4:
-        print("Usage: python opml_to_json.py <input_directory> <output_json_file> <target_outline_texts>")
+    if len(sys.argv) < 4 or len(sys.argv) > 5:
+        print("Usage: python opml_to_json.py <input_directory> <output_json_file> <target_outline_texts> [<url_map_file>]")
         sys.exit(1)
 
-    # Get directory path and target texts from command-line arguments
+    # Get directory path, target texts, and optional URL map file from command-line arguments
     input_dir = sys.argv[1]
     output_json = sys.argv[2]
     target_outline_texts = sys.argv[3].split(",")  # Split the comma-separated list into an array
+    url_map_file = sys.argv[4] if len(sys.argv) == 5 else None
 
     # Run the conversion
-    opml_to_json(input_dir, output_json, target_outline_texts)
+    opml_to_json(input_dir, output_json, target_outline_texts, url_map_file)
