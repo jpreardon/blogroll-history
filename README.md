@@ -11,6 +11,4 @@ The opml_to_json.py file parses all of the .opml files in a directory using the 
 * Target outlines (comma separated list of outlines to include, all others will be ignored)
 * URL Map JSON (optional) - a file used to map any old URLs to new ones. Use if any URLs have changed, see url-map.json.example. Note, the script ignores the protocol (http vs. https) and trailing slashes ("/") when evaluating URLs.
 
-Here's an example of the output. Yes, some work needs to be done to make this more useable.
-
-![screenshot of blogroll history graph](blog-roll-history.png)
+Here's an example of the output: [https://jpreardon.com/blogroll/](https://jpreardon.com/blogroll/)
