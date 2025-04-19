@@ -1,0 +1,8 @@
+# Ignore all JSON files
+*.json
+
+# Ignore JSON files in subdirectories
+**/*.json
+
+# Ignore the olde-blogrolls directory
+olde-blogrolls/
