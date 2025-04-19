@@ -5,6 +5,10 @@ import os
 from datetime import datetime
 import html  # Import the html module to unescape HTML codes
 
+def normalize_url(url):
+    """Normalize a URL by removing the protocol (http or https)."""
+    return url.replace("http://", "").replace("https://", "")
+
 def parse_outline(outline_element, start_date, end_date):
     """Parse an outline element into a dictionary with specific fields: title, htmlUrl, start, and end."""
     title = outline_element.attrib.get("text", "")
@@ -78,11 +82,21 @@ def opml_to_json(input_dir, output_json, target_outline_texts):
                     for outline in target_outline.findall("outline"):
                         item = parse_outline(outline, start_date, end_date)
                         if item is not None:
+                            # Normalize the URL for comparison
+                            normalized_item_url = normalize_url(item["url"])
                             # Check if the URL already exists in the combined data
-                            existing_item = next((x for x in combined_data if x["url"] == item["url"]), None)
+                            existing_item = next(
+                                (x for x in combined_data if normalize_url(x["url"]) == normalized_item_url), None
+                            )
                             if existing_item:
                                 # Update the end date of the existing item
                                 existing_item["end"] = end_date
+                                # Update the title if it is different
+                                if existing_item["title"] != item["title"]:
+                                    existing_item["title"] = item["title"]
+                                # Update the URL if it is different
+                                if existing_item["url"] != item["url"]:
+                                    existing_item["url"] = item["url"]
                             else:
                                 # Add the new item
                                 combined_data.append(item)
