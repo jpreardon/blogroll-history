@@ -1,8 +1,10 @@
-# Ignore all JSON files
+# Files to ignore
 *.json
+.DS_Store
 
-# Ignore JSON files in subdirectories
+# Files to ignore in subdirectories
 **/*.json
+**/.DS_Store
 
 # Ignore the olde-blogrolls directory
 olde-blogrolls/
