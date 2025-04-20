@@ -1,7 +1,6 @@
 # Files to ignore
 *.json
 .DS_Store
-index.html
 
 # Files to ignore in subdirectories
 **/*.json
