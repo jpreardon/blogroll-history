@@ -4,22 +4,86 @@
   <meta charset="UTF-8" />
   <title>Blogroll History</title>
   <style>
-    body {
-      font-family: sans-serif;
-    }
-    svg {
-      display: block;
-      margin: auto;
-    }
+  body {
+    font-family: sans-serif;
+    margin: 1em;
+  }
+  #display-option-container {
+    width: 100%;
+    margin: auto;
+    margin-bottom: 20px;
+  }
+  #display-options {
+    display: flex;
+    justify-content: flex-start; 
+    align-items: flex-start;
+    gap: 20px; 
+  }
+  #slider-container {
+    text-align: left;
+    flex: 0 0 75%; 
+    overflow: hidden;
+    box-sizing: border-box;
+    padding: 0 15px;
+  }
+  #slider-container p {
+    margin-bottom: 20px;
+    font-weight: bold;
+    margin-left: 0;
+  }
+  #range-slider {
+    width: 95%;
+    margin: 10px auto;
+    box-sizing: border-box;
+  }
+  #slider-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin: 10px auto 0;
+  }
+  #sort-options {
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  #sort-options p {
+    margin-bottom: 10px;
+    font-weight: bold;
+  }
+  svg {
+    display: block;
+    margin: auto;
+  }
+  .noUi-connect {
+    background-color: #4682B4 !important; 
+  }
   </style>
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.js"></script>
 </head>
 <body>
-  <h1 style="text-align:center;">Blogroll History</h1>
+  <h1>Blogroll History</h1>
+  <div id="display-option-container">
+    <div id="display-options">
+      <div id="slider-container">
+        <p>Date range</p>
+        <div id="range-slider"></div>
+        <div id="slider-labels">
+          <span id="start-label"></span>
+          <span id="end-label"></span>
+        </div>
+      </div>
+      <div id="sort-options">
+        <p>Sort by</p>
+        <label><input type="radio" name="sort" value="alpha" checked>Alphabetically</label><br>
+        <label><input type="radio" name="sort" value="earliest">Subscription Date</label><br>
+        <label><input type="radio" name="sort" value="longest">Subscription Period</label>
+      </div>
+    </div>
+  </div>
   <div id="chart"></div>
-
   <script>
-
     // URL to the JSON data
     const dataUrl = "blogroll-history.json";
 
@@ -33,83 +97,173 @@
         d.end = new Date(d.end);
       });
 
-      // Get unique titles and sort them
-      const titles = [...new Set(data.map(d => d.title))]
-        .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      // Get the full date range
+      const fullDateRange = d3.extent([...data.map(d => d.start), ...data.map(d => d.end)]);
 
-      // Create a canvas context to measure text width
-      const context = document.createElement("canvas").getContext("2d");
-      context.font = "10px sans-serif";
+      // Initialize the double-ended slider
+      const slider = document.getElementById("range-slider");
+      noUiSlider.create(slider, {
+        start: [0, 100],
+        connect: true,
+        range: {
+          min: 0,
+          max: 100
+        },
+        tooltips: false
+      });
 
-      // Calculate maximum label width
-      const maxLabelWidth = d3.max(titles, d => context.measureText(d).width);
+      // Set initial labels
+      const startLabel = document.getElementById("start-label");
+      const endLabel = document.getElementById("end-label");
+      const formatDate = d3.timeFormat("%B %d, %Y"); // Full date format
+      startLabel.textContent = formatDate(fullDateRange[0]);
+      endLabel.textContent = formatDate(fullDateRange[1]);
 
-      // Set dimensions, margins and colors for the chart
-      const rowHeight = 20;
-      const width = 1000;
-      const height = titles.length * rowHeight + 50;
-      const margin = { top: 20, right: 30, bottom: 30, left: maxLabelWidth + 10 };
-      const startColor = "#000";
-      const endColor = startColor;
-      const barbellLineColor = startColor;
+      // Sorting functions
+      function sortAlphabetically(data) {
+        return [...data].sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+      }
 
-      // Create the SVG element
-      const svg = d3.select("#chart").append("svg")
-        .attr("width", width)
-        .attr("height", height);
+      function sortByEarliestDate(data) {
+        return [...data].sort((a, b) => a.start - b.start);
+      }
 
-      // Create scales for x and y axes
-      const x = d3.scaleTime()
-        .domain(d3.extent([...data.map(d => d.start), ...data.map(d => d.end)]))
-        .range([margin.left, width - margin.right]);
+      function sortByLongest(data) {
+        return [...data].sort((a, b) => (b.end - b.start) - (a.end - a.start));
+      }
 
-      // Create y scale with band scale for titles  
-      const y = d3.scaleBand()
-        .domain(titles)
-        .range([margin.top, height - margin.bottom])
-        .padding(0.5);
+      // Function to update the chart based on the slider values and sorting
+      function updateChart(filteredData, filteredStartDate, filteredEndDate, sortFunction = sortAlphabetically) {
+        // Clear existing SVG
+        d3.select("#chart").select("svg").remove();
 
-      // Append x-axis
-      svg.append("g")
-        .attr("transform", `translate(0,${height - margin.bottom})`)
-        .call(d3.axisBottom(x).ticks(d3.timeYear.every(1)).tickFormat(d3.timeFormat("%Y")));
+        // Filter data to only include items within the slider range
+        const visibleData = filteredData.filter(d => d.start <= filteredEndDate && d.end >= filteredStartDate);
 
-      // Append y-axis
-      svg.append("g")
-        .attr("transform", `translate(${margin.left},0)`)
-        .call(d3.axisLeft(y));
+        // Sort the data
+        const sortedData = sortFunction(visibleData);
 
-      // Draw barbell lines
-      svg.selectAll(".barbell-line")
-        .data(data)
-        .enter().append("line")
-        .attr("class", "barbell-line")
-        .attr("x1", d => x(d.start))
-        .attr("x2", d => x(d.end))
-        .attr("y1", d => y(d.title) + y.bandwidth() / 2)
-        .attr("y2", d => y(d.title) + y.bandwidth() / 2)
-        .attr("stroke", barbellLineColor)
-        .attr("stroke-width", 2);
+        // Get unique titles based on sorted data
+        const titles = [...new Set(sortedData.map(d => d.title))];
 
-      // Draw start and end circles
-      svg.selectAll(".start-circle")
-        .data(data)
-        .enter().append("circle")
-        .attr("class", "start-circle")
-        .attr("cx", d => x(d.start))
-        .attr("cy", d => y(d.title) + y.bandwidth() / 2)
-        .attr("r", 5)
-        .attr("fill", startColor);
+        // Create a canvas context to measure text width
+        const context = document.createElement("canvas").getContext("2d");
+        context.font = "10px sans-serif";
 
-      // Draw end circles
-      svg.selectAll(".end-circle")
-        .data(data)
-        .enter().append("circle")
-        .attr("class", "end-circle")
-        .attr("cx", d => x(d.end))
-        .attr("cy", d => y(d.title) + y.bandwidth() / 2)
-        .attr("r", 5)
-        .attr("fill", endColor);
+        // Calculate maximum label width
+        const maxLabelWidth = d3.max(titles, d => context.measureText(d).width);
+
+        // Set dimensions, margins, and colors for the chart
+        const rowHeight = 20;
+        const container = document.getElementById("chart");
+        const width = container.offsetWidth; // Dynamically set width to the size of the container
+        const height = titles.length * rowHeight + 50;
+        const margin = { top: 20, right: 30, bottom: 30, left: maxLabelWidth + 10 };
+        const startColor = "#000";
+        const endColor = startColor;
+        const barbellLineColor = startColor;
+
+        const svg = d3.select("#chart").append("svg")
+          .attr("width", width)
+          .attr("height", height);
+
+        // Create scales for x and y axes
+        const x = d3.scaleTime()
+          .domain([filteredStartDate, filteredEndDate])
+          .range([margin.left, width - margin.right]);
+
+        const y = d3.scaleBand()
+          .domain(titles)
+          .range([margin.top, height - margin.bottom])
+          .padding(0.5);
+
+        // Append x-axis
+        svg.append("g")
+          .attr("transform", `translate(0,${height - margin.bottom})`)
+          .call(d3.axisBottom(x).ticks(d3.timeYear.every(1)).tickFormat(d3.timeFormat("%Y")));
+
+        // Append y-axis
+        svg.append("g")
+          .attr("transform", `translate(${margin.left},0)`)
+          .call(d3.axisLeft(y));
+
+        // Draw barbell lines
+        svg.selectAll(".barbell-line")
+          .data(sortedData)
+          .enter().append("line")
+          .attr("class", "barbell-line")
+          .attr("x1", d => Math.max(x(d.start), x(filteredStartDate))) // Ensure start is within x-axis range
+          .attr("x2", d => Math.min(x(d.end), x(filteredEndDate))) // Ensure end is within x-axis range
+          .attr("y1", d => y(d.title) + y.bandwidth() / 2)
+          .attr("y2", d => y(d.title) + y.bandwidth() / 2)
+          .attr("stroke", barbellLineColor)
+          .attr("stroke-width", 2);
+
+        // Draw start and end circles
+        svg.selectAll(".start-circle")
+          .data(sortedData.filter(d => d.start >= filteredStartDate && d.start <= filteredEndDate)) // Filter start circles within range
+          .enter().append("circle")
+          .attr("class", "start-circle")
+          .attr("cx", d => x(d.start))
+          .attr("cy", d => y(d.title) + y.bandwidth() / 2)
+          .attr("r", 5)
+          .attr("fill", startColor);
+
+        svg.selectAll(".end-circle")
+          .data(sortedData.filter(d => d.end >= filteredStartDate && d.end <= filteredEndDate)) // Filter end circles within range
+          .enter().append("circle")
+          .attr("class", "end-circle")
+          .attr("cx", d => x(d.end))
+          .attr("cy", d => y(d.title) + y.bandwidth() / 2)
+          .attr("r", 5)
+          .attr("fill", endColor);
+      }
+
+      // Initialize the chart with the full dataset
+      updateChart(data, fullDateRange[0], fullDateRange[1]);
+
+      // Add event listener to the slider
+      slider.noUiSlider.on("update", (values) => {
+        const startValue = values[0] / 100;
+        const endValue = values[1] / 100;
+
+        const filteredStartDate = new Date(fullDateRange[0].getTime() + startValue * (fullDateRange[1] - fullDateRange[0]));
+        const filteredEndDate = new Date(fullDateRange[0].getTime() + endValue * (fullDateRange[1] - fullDateRange[0]));
+
+        // Update labels with full date
+        startLabel.textContent = formatDate(filteredStartDate);
+        endLabel.textContent = formatDate(filteredEndDate);
+
+        // Get the selected sorting function
+        const selectedSort = document.querySelector('input[name="sort"]:checked').value;
+        let sortFunction = sortAlphabetically;
+        if (selectedSort === "earliest") sortFunction = sortByEarliestDate;
+        else if (selectedSort === "longest") sortFunction = sortByLongest;
+
+        // Filter data and update chart
+        updateChart(data, filteredStartDate, filteredEndDate, sortFunction);
+      });
+
+      // Add event listener for sorting options
+      document.querySelectorAll('input[name="sort"]').forEach(radio => {
+        radio.addEventListener("change", () => {
+          const sliderValues = slider.noUiSlider.get();
+          const startValue = sliderValues[0] / 100;
+          const endValue = sliderValues[1] / 100;
+
+          const filteredStartDate = new Date(fullDateRange[0].getTime() + startValue * (fullDateRange[1] - fullDateRange[0]));
+          const filteredEndDate = new Date(fullDateRange[0].getTime() + endValue * (fullDateRange[1] - fullDateRange[0]));
+
+          // Get the selected sorting function
+          const selectedSort = document.querySelector('input[name="sort"]:checked').value;
+          let sortFunction = sortAlphabetically;
+          if (selectedSort === "earliest") sortFunction = sortByEarliestDate;
+          else if (selectedSort === "longest") sortFunction = sortByLongest;
+
+          // Update chart with sorted data and current slider range
+          updateChart(data, filteredStartDate, filteredEndDate, sortFunction);
+        });
+      });
     }
 
     // Call the function to draw the chart
