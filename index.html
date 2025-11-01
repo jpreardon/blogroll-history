@@ -89,7 +89,10 @@
 
     // Function to draw the chart
     async function drawChart() {
-      const data = await d3.json(dataUrl);
+      const jsonData = await d3.json(dataUrl);
+      
+      // Extract items from the new JSON structure
+      const data = jsonData.items || jsonData;
 
       // Parse dates
       data.forEach(d => {

@@ -94,6 +94,8 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
 
         # Load existing data from the output JSON file if it exists
         existing_data = []
+        previous_file_date = None
+        
         if os.path.isfile(output_json):
             base, ext = os.path.splitext(output_json)
             counter = 1
@@ -103,7 +105,14 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
             os.rename(output_json, backup_filename)
             logging.info(f"Existing output file backed up as {backup_filename}")
             with open(backup_filename, "r", encoding="utf-8") as json_file:
-                existing_data = json.load(json_file)
+                loaded_data = json.load(json_file)
+                # Check if the data has metadata structure
+                if isinstance(loaded_data, dict) and "metadata" in loaded_data:
+                    existing_data = loaded_data.get("items", [])
+                    previous_file_date = loaded_data.get("metadata", {}).get("last_processed_date")
+                else:
+                    # Old format without metadata
+                    existing_data = loaded_data
 
         # Find and sort all .opml files in the input directory
         opml_files = [
@@ -113,6 +122,7 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
 
         # Combine data from all OPML files
         combined_data = existing_data
+        
         for filename in opml_files:
             input_opml = os.path.join(input_dir, filename)
             logging.info(f"Processing file: {input_opml}")
@@ -142,25 +152,85 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
                             item = parse_outline(outline, start_date, end_date, url_map)
                             if item is not None:
                                 normalized_item_url = normalize_url(item["url"])
-                                existing_item = next(
-                                    (x for x in combined_data if normalize_url(x["url"]) == normalized_item_url), None
-                                )
-                                if existing_item:
-                                    # Update existing entry
-                                    existing_item["end"] = end_date
-                                    if existing_item["title"] != item["title"]:
-                                        existing_item["title"] = item["title"]
-                                    if existing_item["url"] != item["url"]:
-                                        existing_item["url"] = item["url"]
+                                
+                                # Find all matching items and get the most recent one
+                                matching_items = [
+                                    x for x in combined_data 
+                                    if normalize_url(x["url"]) == normalized_item_url
+                                ]
+                                
+                                if matching_items:
+                                    # Sort by end date and get the most recent
+                                    matching_items.sort(
+                                        key=lambda x: datetime.strptime(
+                                            x["end"],
+                                            "%Y-%m-%dT%H:%M:%S.%fZ"
+                                        )
+                                    )
+                                    existing_item = matching_items[-1]
+                                    
+                                    # Check if the item's end date matches the previous file's date
+                                    # If it does, update it; if not, there was a gap and we create a new entry
+                                    if previous_file_date is not None:
+                                        if existing_item["end"] == previous_file_date:
+                                            # Continuous - update existing entry
+                                            existing_item["end"] = end_date
+                                            if existing_item["title"] != item["title"]:
+                                                existing_item["title"] = item["title"]
+                                            if existing_item["url"] != item["url"]:
+                                                existing_item["url"] = item["url"]
+                                        else:
+                                            # Gap detected - add as new entry
+                                            combined_data.append(item)
+                                    else:
+                                        # First file being processed - update existing entry
+                                        existing_item["end"] = end_date
+                                        if existing_item["title"] != item["title"]:
+                                            existing_item["title"] = item["title"]
+                                        if existing_item["url"] != item["url"]:
+                                            existing_item["url"] = item["url"]
                                 else:
                                     # Add new entry
                                     combined_data.append(item)
             except Exception as e:
                 logging.error(f"Error processing file '{input_opml}': {e}")
+            
+            # Update previous_file_date for the next iteration
+            previous_file_date = end_date
 
-        # Write the combined data to the output JSON file
+        # Update all items with the same URL to use the latest title
+        # Group items by normalized URL (using mapped URLs)
+        url_groups = {}
+        for item in combined_data:
+            # Use map_url to ensure we're grouping by the mapped URL
+            mapped_url = map_url(item["url"], url_map)
+            normalized_url = normalize_url(mapped_url)
+            if normalized_url not in url_groups:
+                url_groups[normalized_url] = []
+            url_groups[normalized_url].append(item)
+        
+        # For each URL group, find the most recent title and update all items
+        for normalized_url, items in url_groups.items():
+            # Sort by end date to find the most recent
+            items.sort(key=lambda x: datetime.strptime(x["end"], "%Y-%m-%dT%H:%M:%S.%fZ"))
+            latest_title = items[-1]["title"]
+            latest_url = items[-1]["url"]
+            
+            # Update all items in this group to use the latest title and URL
+            for item in items:
+                item["title"] = latest_title
+                item["url"] = latest_url
+
+        # Write the combined data to the output JSON file with metadata
+        output_data = {
+            "metadata": {
+                "last_processed_date": previous_file_date
+            },
+            "items": combined_data
+        }
+        
         with open(output_json, "w", encoding="utf-8") as json_file:
-            json.dump(combined_data, json_file, ensure_ascii=False, indent=2)
+            json.dump(output_data, json_file, ensure_ascii=False, indent=2)
 
         logging.info(f"Conversion successful! JSON saved to {output_json}")
 
