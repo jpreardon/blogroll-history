@@ -74,6 +74,49 @@ def parse_outline(outline_element, start_date, end_date, url_map):
         logging.error(f"Error parsing outline element: {e}")
         return None
 
+def deduplicate_items(items):
+    """
+    Merge duplicate or overlapping entries for the same blog URL.
+    - Groups entries by normalized URL.
+    - Within each group, sorts by start date and merges any entries where
+      the start of one entry is on or before the end of the previous entry
+      (i.e. touching or overlapping ranges caused by re-processing bugs).
+    - Genuine gaps (where a blog was removed and later re-added) are preserved
+      as separate entries.
+    - Returns a deduplicated, flattened list of all items.
+    """
+    from collections import defaultdict
+
+    def parse_dt(s):
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+    # Group by normalized URL
+    groups = defaultdict(list)
+    for item in items:
+        groups[normalize_url(item["url"])].append(item)
+
+    deduped = []
+    for url_key, entries in groups.items():
+        # Sort by start date so we can walk the timeline
+        entries.sort(key=lambda x: parse_dt(x["start"]))
+        merged = []
+        current = dict(entries[0])
+        for entry in entries[1:]:
+            if parse_dt(entry["start"]) <= parse_dt(current["end"]):
+                # Overlapping or touching — extend the range and take the latest title/url
+                if parse_dt(entry["end"]) > parse_dt(current["end"]):
+                    current["end"] = entry["end"]
+                current["title"] = entry["title"]
+                current["url"] = entry["url"]
+            else:
+                # Genuine gap — commit the current span and start a new one
+                merged.append(current)
+                current = dict(entry)
+        merged.append(current)
+        deduped.extend(merged)
+
+    return deduped
+
 def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None):
     """
     Convert all OPML files in a directory to a single JSON file.
@@ -92,21 +135,14 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
         if not os.path.isdir(input_dir):
             raise ValueError(f"The input '{input_dir}' is not a directory.")
 
-        # Load existing data from the output JSON file if it exists
+        # Read the last_processed_date from the existing JSON (without moving it yet)
+        # so we can bail out early if there is nothing new to process.
         existing_data = []
         previous_file_date = None
-        
+
         if os.path.isfile(output_json):
-            base, ext = os.path.splitext(output_json)
-            counter = 1
-            while os.path.isfile(f"{base}_{counter}{ext}"):
-                counter += 1
-            backup_filename = f"{base}_{counter}{ext}"
-            os.rename(output_json, backup_filename)
-            logging.info(f"Existing output file backed up as {backup_filename}")
-            with open(backup_filename, "r", encoding="utf-8") as json_file:
+            with open(output_json, "r", encoding="utf-8") as json_file:
                 loaded_data = json.load(json_file)
-                # Check if the data has metadata structure
                 if isinstance(loaded_data, dict) and "metadata" in loaded_data:
                     existing_data = loaded_data.get("items", [])
                     previous_file_date = loaded_data.get("metadata", {}).get("last_processed_date")
@@ -119,6 +155,30 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
             filename for filename in os.listdir(input_dir) if filename.endswith(".opml")
         ]
         opml_files.sort(key=lambda x: datetime.strptime(x.split("-")[1].split(".")[0], "%Y%m%d"))
+
+        # If we have a previously processed date, skip files already covered to prevent
+        # re-processing them and generating duplicate entries in the output JSON.
+        # Do this check BEFORE touching the output file so we never delete it on a no-op run.
+        if previous_file_date is not None:
+            last_processed_dt = datetime.strptime(previous_file_date, "%Y-%m-%dT%H:%M:%S.%fZ")
+            opml_files = [
+                f for f in opml_files
+                if datetime.strptime(f.split("-")[1].split(".")[0], "%Y%m%d") > last_processed_dt
+            ]
+            if not opml_files:
+                logging.info("No new OPML files to process. Exiting.")
+                return
+            logging.info(f"Processing {len(opml_files)} new OPML file(s) after {previous_file_date[:10]}")
+
+        # Back up the existing output JSON now that we know we have work to do
+        if os.path.isfile(output_json):
+            base, ext = os.path.splitext(output_json)
+            counter = 1
+            while os.path.isfile(f"{base}_{counter}{ext}"):
+                counter += 1
+            backup_filename = f"{base}_{counter}{ext}"
+            os.rename(output_json, backup_filename)
+            logging.info(f"Existing output file backed up as {backup_filename}")
 
         # Combine data from all OPML files
         combined_data = existing_data
@@ -221,6 +281,13 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
                 item["title"] = latest_title
                 item["url"] = latest_url
 
+        # Deduplicate: merge overlapping or touching date ranges for the same URL
+        before_count = len(combined_data)
+        combined_data = deduplicate_items(combined_data)
+        after_count = len(combined_data)
+        if before_count != after_count:
+            logging.info(f"Deduplication removed {before_count - after_count} redundant entries.")
+
         # Write the combined data to the output JSON file with metadata
         output_data = {
             "metadata": {
@@ -228,6 +295,11 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
             },
             "items": combined_data
         }
+        
+        with open(output_json, "w", encoding="utf-8") as json_file:
+            json.dump(output_data, json_file, ensure_ascii=False, indent=2)
+
+        logging.info(f"Conversion successful! JSON saved to {output_json}")
         
         with open(output_json, "w", encoding="utf-8") as json_file:
             json.dump(output_data, json_file, ensure_ascii=False, indent=2)
