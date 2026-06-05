@@ -300,11 +300,6 @@ def opml_to_json(input_dir, output_json, target_outline_texts, url_map_file=None
             json.dump(output_data, json_file, ensure_ascii=False, indent=2)
 
         logging.info(f"Conversion successful! JSON saved to {output_json}")
-        
-        with open(output_json, "w", encoding="utf-8") as json_file:
-            json.dump(output_data, json_file, ensure_ascii=False, indent=2)
-
-        logging.info(f"Conversion successful! JSON saved to {output_json}")
 
     except Exception as e:
         logging.error(f"Error: {e}")
